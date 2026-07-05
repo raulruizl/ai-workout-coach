@@ -28,13 +28,12 @@ Step Functions state machine
    │     → S3 bronze (raw JSON, append-only, partitioned user_id/ingest_date)
    ├─ Glue Python Shell: bronze → silver (flatten to set-grain parquet, typed, deduped)
    ├─ Glue Python Shell: silver → gold (weekly aggregates: volume, est_1RM, stall flags)
-   ├─ Glue Catalog registers silver/gold tables
-   └─ Lambda: sync gold → DynamoDB (per-user latest-stats cache)
+   └─ Lambda: sync gold → DynamoDB (LATEST + WEEK#<date> items per user)
    Catch/Retry per state → SQS DLQ → CloudWatch/SNS alert
 
 Serving:
-   Athena  ← ad-hoc/deep query over Gold (read-only role, gold prefix only)
-   DynamoDB ← low-latency point lookups for agent tools
+   DynamoDB ← sole serving layer, low-latency point lookups for agent tools
+   (no Glue Catalog, no Athena — app serves data through the UI only, no ad-hoc SQL layer)
 
 AI Coach (decoupled from pipeline — separate consumer):
    Bedrock AgentCore (Strands SDK), Claude as brain
@@ -63,23 +62,25 @@ rules apply downstream, not here.
 **Gold** (`gold.weekly_exercise_stats`, `gold.weekly_summary`, partitioned `user_id`/`week`) —
 aggregated. This is where `is_warmup=true` sets get excluded from volume/1RM calculations.
 
-**DynamoDB** (`workout_coach_stats`, PK `user_id`, SK `stat_type`) — derived cache for agent
-tools, not source of truth. `SK=LATEST` single-item-per-user for fast reads.
+**DynamoDB** (`workout_coach_stats`, PK `user_id`, SK `stat_type`) — sole serving layer for the
+agent, derived cache, not source of truth. `SK=LATEST` single-item-per-user for fast reads, plus
+`SK=WEEK#<date>` items so `query_workout_history`/trend tools have history to read without a
+query engine.
 
-Full lineage: `Hevy API → bronze (raw) → silver.sets (flattened, nothing dropped) → gold (business rules applied) → DynamoDB (agent cache)`.
+Full lineage: `Hevy API → bronze (raw) → silver.sets (flattened, nothing dropped) → gold (business rules applied) → DynamoDB (agent cache — LATEST + WEEK#<date> items)`.
 
 ## Security controls (from security-expert review — apply to every component)
 
 - **Per-component least-privilege IAM.** No shared "do everything" role. Each Lambda/Glue job/
-  Athena role/agent tool role gets only the specific actions + resource ARNs it needs (see
-  VULN-002 in project memory / conversation history for the full per-component breakdown).
+  agent tool role gets only the specific actions + resource ARNs it needs (see VULN-002 in
+  project memory / conversation history for the full per-component breakdown).
 - **Secrets**: Hevy API key in SSM Parameter Store SecureString (not Secrets Manager — no
   rotation need since Hevy has no key-rotation API; not a downgrade). Never in Lambda env vars,
   never in Step Functions state input/payload — fetch inside the Lambda at invoke time.
 - **S3**: Block Public Access enabled account-wide. SSE encryption on all buckets. Versioning on
   bronze.
-- **Agent tool inputs**: never string-interpolate user/agent-supplied values into Athena SQL.
-  Parameterized queries or strict validation (UUID/known-value checks) before any query build.
+- **Agent tool inputs**: never string-interpolate user/agent-supplied values into DynamoDB key
+  construction. Strict validation (UUID/known-value checks) before any key/query build.
 - **Agent tools are read-only.** No destructive/write tools exist today. If one is ever added,
   stop and add human-in-the-loop confirmation before shipping it — don't skip this gate.
 - **Data classification**: user_id/workout data = Internal. body_measurements = Confidential
@@ -101,19 +102,21 @@ don't compute).
 - **ADR-001**: Step Functions + EventBridge over Airflow (any hosting). Zero idle cost, no host
   to manage, native retry/DLQ per state. Semi-one-way once Lambdas/Glue jobs are built as state
   machine tasks — don't relitigate lightly.
-- **ADR-002**: S3 + Athena + Glue Catalog over Redshift. Pay-per-query fits sparse portfolio
-  usage; partition scheme demonstrates multi-user thinking without provisioning cost.
+- **ADR-002**: S3 (Bronze/Silver/Gold) over Redshift. Serverless storage, no idle compute cost;
+  partition scheme demonstrates multi-user thinking without provisioning cost.
 - **ADR-003**: Plain partitioned parquet for MVP, Iceberg deferred to Phase 2 (schema
   evolution/time-travel not needed yet, reversible upgrade path stays open).
-- **ADR-004**: DynamoDB for agent-facing metadata, decoupled from the pipeline. Agent never
-  touches Step Functions/Airflow-equivalent; reads only Athena (deep history) + DynamoDB (fast
-  path).
+- **ADR-004**: DynamoDB for agent-facing metadata, decoupled from the pipeline, and promoted to
+  **sole serving layer** (superseded Athena/Glue Catalog — the app serves data through the UI
+  only, no ad-hoc SQL layer needed). Agent never touches Step Functions; reads only DynamoDB
+  (`LATEST` + `WEEK#<date>` items cover both fast-path and history queries).
 - **ADR-005**: Amplify + API Gateway WebSocket for serving layer. Enables true live dashboard
   updates driven by agent tool calls, not polling. Real variable cost driver is Bedrock model
   invocation (tokens), not hosting — watch conversation volume, not infra cost, against budget.
-- **Glue Catalog yes, Glue ETL (Spark) no**: transform compute is Glue **Python Shell** jobs
-  (cheap, pandas/boto3-scale), not Spark — data volume (KB–MB/day) doesn't justify distributed
-  compute. Glue Catalog is used purely for schema registration/Athena querying.
+- **Glue Catalog/Athena dropped**: transform compute is Glue **Python Shell** jobs (cheap,
+  pandas/boto3-scale), not Spark — data volume (KB–MB/day) doesn't justify distributed compute.
+  No Glue Catalog or Athena in the architecture at all — DynamoDB (ADR-004) is the only serving
+  layer; Gold parquet in S3 exists for lineage/archival only, read solely by the sync Lambda.
 
 ## Working agreements
 
