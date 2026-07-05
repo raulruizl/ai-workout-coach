@@ -27,3 +27,8 @@ output "extract_lambda_name" {
   description = "Extract Lambda function name (B1)"
   value       = aws_lambda_function.extract_hevy_workouts.function_name
 }
+
+output "bronze_to_silver_job_name" {
+  description = "Glue Python Shell job name (B2)"
+  value       = aws_glue_job.bronze_to_silver.name
+}
