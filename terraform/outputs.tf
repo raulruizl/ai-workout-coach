@@ -42,3 +42,8 @@ output "sync_gold_to_dynamodb_lambda_name" {
   description = "Sync Lambda function name (B4)"
   value       = aws_lambda_function.sync_gold_to_dynamodb.function_name
 }
+
+output "pipeline_state_machine_arn" {
+  description = "Step Functions state machine ARN (D1)"
+  value       = aws_sfn_state_machine.workout_coach_pipeline.arn
+}
