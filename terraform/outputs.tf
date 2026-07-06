@@ -62,3 +62,8 @@ output "chat_websocket_url" {
   description = "WebSocket URL for the chat bridge (G1) — wss://<id>.execute-api.<region>.amazonaws.com/prod"
   value       = aws_apigatewayv2_stage.prod.invoke_url
 }
+
+output "amplify_app_id" {
+  description = "Amplify app ID (G2) — pass to frontend/deploy.sh"
+  value       = aws_amplify_app.frontend.id
+}
