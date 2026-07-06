@@ -81,8 +81,15 @@ Full lineage: `Hevy API → bronze (raw) → silver.sets (flattened, nothing dro
   bronze.
 - **Agent tool inputs**: never string-interpolate user/agent-supplied values into DynamoDB key
   construction. Strict validation (UUID/known-value checks) before any key/query build.
-- **Agent tools are read-only.** No destructive/write tools exist today. If one is ever added,
-  stop and add human-in-the-loop confirmation before shipping it — don't skip this gate.
+- **Agent tools are read-only by default.** One exception: `apply_progression` writes to the
+  user's Hevy routine (next-session target only, never past logged history) and only executes
+  against a `proposal_id` minted by a prior `propose_progression` call — it cannot accept a
+  free-form weight/reps value from the model. Proposals expire after 10 minutes and are
+  single-use (DynamoDB conditional update prevents replay). If any *additional* write tool is
+  ever added, stop and design an equivalent propose/apply-with-token gate before shipping it —
+  free-form write parameters from the model are never acceptable. A UI-level confirmation
+  (a click, not a chat reply) is still G1's job once it exists; the token gate is the actual
+  security boundary, chat confirmation is UX on top of it.
 - **Data classification**: user_id/workout data = Internal. body_measurements = Confidential
   (treat with same encryption, don't expose raw on any public surface). Hevy API key =
   Restricted. No GDPR/HIPAA trigger at this scale, but encrypt-at-rest + least-privilege apply
