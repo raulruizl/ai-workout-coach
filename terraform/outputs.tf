@@ -57,3 +57,8 @@ output "agentcore_role_arn" {
   description = "IAM role ARN for the AgentCore Runtime execution role (F1)"
   value       = aws_iam_role.agentcore.arn
 }
+
+output "chat_websocket_url" {
+  description = "WebSocket URL for the chat bridge (G1) — wss://<id>.execute-api.<region>.amazonaws.com/prod"
+  value       = aws_apigatewayv2_stage.prod.invoke_url
+}
