@@ -85,6 +85,21 @@ resource "aws_iam_role_policy" "agentcore" {
         Resource = aws_dynamodb_table.workout_coach_stats.arn
       },
       {
+        # PROPOSAL#<id> items only (propose_progression writes, apply_progression
+        # claims via conditional UpdateItem) — the write-tool token gate.
+        Sid      = "WriteProgressionProposals"
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+        Resource = aws_dynamodb_table.workout_coach_stats.arn
+      },
+      {
+        # apply_progression only — the sole tool holding the Hevy write credential.
+        Sid      = "ReadHevyApiKeyForProgressionWrite"
+        Effect   = "Allow"
+        Action   = "ssm:GetParameter"
+        Resource = aws_ssm_parameter.hevy_api_key.arn
+      },
+      {
         Sid      = "WriteOwnLogs"
         Effect   = "Allow"
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]

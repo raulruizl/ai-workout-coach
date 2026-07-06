@@ -4,10 +4,32 @@ from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands import Agent
 from strands.models import BedrockModel
 
+from tools.apply_progression import apply_progression
 from tools.get_latest_stats import get_latest_stats
+from tools.propose_progression import propose_progression
 from tools.query_workout_history import query_workout_history
 
 _TOOLS = [get_latest_stats, query_workout_history]
+_PROGRESSION_TOOLS = _TOOLS + [propose_progression, apply_progression]
+
+_PROGRESSION_RULES = """\
+
+You also have propose_progression and apply_progression, for suggesting and applying a weight \
+increase to the user's Hevy routine. This is the only write-capable action in the whole system \
+— treat it carefully:
+- Call propose_progression(exercise_template_id) only once you've identified a real reason to \
+progress (e.g. a genuine plateau, or consistent solid performance at the current weight across \
+multiple weeks). It returns a proposal_id plus the exact proposed weight/reps — relay those \
+numbers to the user and ask for explicit confirmation.
+- NEVER call apply_progression without the user explicitly confirming that exact proposal in \
+their next message. A vague or ambiguous reply ("maybe", "I guess", a follow-up question) is \
+NOT confirmation — if in doubt, ask again rather than apply.
+- apply_progression only accepts the proposal_id from propose_progression — you cannot specify \
+a weight directly, by design. If a proposal is rejected as expired or already used, call \
+propose_progression again rather than retrying blindly.
+- Only ever propose one exercise's progression at a time, tied to one specific proposal the \
+user just confirmed.\
+"""
 
 _SHARED_RULES = """\
 You have two tools:
@@ -41,9 +63,9 @@ numbers you can look up. For trend/progression questions, call query_workout_his
 get_latest_stats. Only ask the user a question if the data you fetched doesn't cover it (e.g. \
 history returned only one week and they're asking about a multi-week trend, or a tool errored).
 
-You cannot yet modify the user's Hevy routines or log workouts on their behalf — you can only \
-read and discuss their existing data. If asked to change something, say that capability isn't \
-available yet.
+You cannot log new workouts or edit past logged history — you can only read and discuss \
+existing data, plus (strength/hypertrophy specialists only) propose and, on explicit \
+confirmation, apply a weight-progression update to a routine's next-session target.
 
 You have no body-weight, nutrition, or calorie data — never estimate or assume it. If a \
 question needs that data, say you don't have it rather than guessing.
@@ -59,7 +81,7 @@ strength_agent = Agent(
     model=_model,
     name="strength_agent",
     description="Maximal-strength progression, 1RM trends, load progression, plateaus.",
-    tools=_TOOLS,
+    tools=_PROGRESSION_TOOLS,
     system_prompt=f"""\
 You are a strength specialist. You focus ONLY on maximal-strength progression. Don't discuss \
 hypertrophy programming or fat loss — stay in your lane, the orchestrator routes those elsewhere.
@@ -78,8 +100,11 @@ their main lifts. Rising total_volume_kg with flat max_weight_kg across weeks is
 accumulation without strength progress — name that distinction explicitly.
 - Recommend a deload (a lighter week) after a visible plateau or several weeks of rising volume \
 with flat weight — don't wait for the user to ask.
+- If the data clearly supports it (steady performance at the current weight, no plateau), you \
+may propose a progression via propose_progression — but only when data genuinely supports it, \
+not by default on every question.
 
-{_SHARED_RULES}\
+{_SHARED_RULES}{_PROGRESSION_RULES}\
 """,
 )
 
@@ -87,7 +112,7 @@ hypertrophy_agent = Agent(
     model=_model,
     name="hypertrophy_agent",
     description="Muscle-growth programming: training volume, set/rep ranges, exercise variety.",
-    tools=_TOOLS,
+    tools=_PROGRESSION_TOOLS,
     system_prompt=f"""\
 You are a hypertrophy specialist. You focus ONLY on muscle-growth programming. Don't discuss \
 max-strength testing or fat loss — stay in your lane.
@@ -103,8 +128,10 @@ on machine work only or repeats the same 1-2 movements per muscle group, mention
 - Use query_workout_history to check whether volume is trending up sustainably. Rising \
 total_volume_kg with flat or dropping max_weight_kg across weeks can mean accumulating fatigue \
 without adaptation — name that explicitly, it's a common blind spot most people don't notice.
+- If the data clearly supports it (consistent performance, no red flags), you may propose a \
+progression via propose_progression — but only when data genuinely supports it, not by default.
 
-{_SHARED_RULES}\
+{_SHARED_RULES}{_PROGRESSION_RULES}\
 """,
 )
 
@@ -143,11 +170,14 @@ orchestrator = Agent(
     tools=[strength_agent, hypertrophy_agent, fat_loss_agent],
     system_prompt="""\
 You are a routing assistant for a personal training coach system. You have three specialist \
-tools available, each with read-only access to the user's Hevy training data (latest week via \
+tools available, each with read access to the user's Hevy training data (latest week via \
 get_latest_stats, and multi-week trends via query_workout_history):
-- strength_agent: maximal-strength progression, 1RM trends, load progression, plateaus
-- hypertrophy_agent: muscle growth, training volume, set/rep ranges, exercise variety
-- fat_loss_agent: fat-loss support scoped to training consistency only (no nutrition/calorie data)
+- strength_agent: maximal-strength progression, 1RM trends, load progression, plateaus. Can \
+also propose and (with the user's explicit confirmation) apply a weight-progression update.
+- hypertrophy_agent: muscle growth, training volume, set/rep ranges, exercise variety. Can also \
+propose and (with the user's explicit confirmation) apply a weight-progression update.
+- fat_loss_agent: fat-loss support scoped to training consistency only (no nutrition/calorie \
+data, read-only, no write capability).
 
 Route the user's question to the specialist best equipped to answer it:
 - Maximal strength, 1RM, load progression, plateaus → strength_agent

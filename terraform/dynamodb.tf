@@ -20,4 +20,12 @@ resource "aws_dynamodb_table" "workout_coach_stats" {
   point_in_time_recovery {
     enabled = true
   }
+
+  # Used only by PROPOSAL#<id> items (propose_progression/apply_progression,
+  # F2 write-tool gate) — proposals expire 10 minutes after creation so a
+  # stale one can never be replayed. Every other item type ignores this.
+  ttl {
+    attribute_name = "ttl"
+    enabled        = true
+  }
 }

@@ -28,21 +28,9 @@ def clamp_weeks(weeks: int) -> int:
     return max(1, min(weeks, _MAX_WEEKS))
 
 
-@tool
-def query_workout_history(weeks: int = 8) -> dict:
-    """
-    Get the user's training stats across their most recent N weeks, oldest
-    first — use this for any question about trends, progression, or
-    plateaus that a single week's data can't answer.
-
-    Args:
-        weeks: How many of the most recent weeks to return (1-52, default 8).
-
-    Returns:
-        Dict with a 'weeks' list (oldest to newest), each item shaped like
-        get_latest_stats' output plus a 'week' date. Empty list if no
-        history has been synced yet.
-    """
+def fetch_history(weeks: int = 8) -> dict:
+    """Plain (undecorated) implementation, importable by other tools
+    (e.g. propose_progression) without going through the @tool wrapper."""
     limit = clamp_weeks(weeks)
     target_user_id = os.environ.get("TARGET_USER_ID", "demo-user")
 
@@ -60,3 +48,21 @@ def query_workout_history(weeks: int = 8) -> dict:
             for item in items
         ]
     }
+
+
+@tool
+def query_workout_history(weeks: int = 8) -> dict:
+    """
+    Get the user's training stats across their most recent N weeks, oldest
+    first — use this for any question about trends, progression, or
+    plateaus that a single week's data can't answer.
+
+    Args:
+        weeks: How many of the most recent weeks to return (1-52, default 8).
+
+    Returns:
+        Dict with a 'weeks' list (oldest to newest), each item shaped like
+        get_latest_stats' output plus a 'week' date. Empty list if no
+        history has been synced yet.
+    """
+    return fetch_history(weeks)
