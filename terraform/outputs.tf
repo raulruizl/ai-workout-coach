@@ -32,3 +32,8 @@ output "bronze_to_silver_job_name" {
   description = "Glue Python Shell job name (B2)"
   value       = aws_glue_job.bronze_to_silver.name
 }
+
+output "silver_to_gold_job_name" {
+  description = "Glue Python Shell job name (B3)"
+  value       = aws_glue_job.silver_to_gold.name
+}
