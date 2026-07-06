@@ -37,3 +37,8 @@ output "silver_to_gold_job_name" {
   description = "Glue Python Shell job name (B3)"
   value       = aws_glue_job.silver_to_gold.name
 }
+
+output "sync_gold_to_dynamodb_lambda_name" {
+  description = "Sync Lambda function name (B4)"
+  value       = aws_lambda_function.sync_gold_to_dynamodb.function_name
+}
