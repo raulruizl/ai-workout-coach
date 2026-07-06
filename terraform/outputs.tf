@@ -47,3 +47,13 @@ output "pipeline_state_machine_arn" {
   description = "Step Functions state machine ARN (D1)"
   value       = aws_sfn_state_machine.workout_coach_pipeline.arn
 }
+
+output "agent_ecr_repository_url" {
+  description = "ECR repo URL for the AgentCore agent container (F1)"
+  value       = aws_ecr_repository.agent.repository_url
+}
+
+output "agentcore_role_arn" {
+  description = "IAM role ARN for the AgentCore Runtime execution role (F1)"
+  value       = aws_iam_role.agentcore.arn
+}
