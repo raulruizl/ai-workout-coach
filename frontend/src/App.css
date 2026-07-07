@@ -138,6 +138,30 @@
   font-size: 0.9em;
 }
 
+.bubble-assistant .table-scroll {
+  overflow-x: auto;
+  margin: 0.6em 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bubble-assistant table {
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.bubble-assistant th,
+.bubble-assistant td {
+  padding: 6px 10px;
+  border: 1px solid var(--iron);
+  text-align: left;
+}
+
+.bubble-assistant th {
+  background: var(--plate-surface-raised);
+  font-weight: 700;
+}
+
 .thinking {
   display: flex;
   gap: 5px;
