@@ -90,7 +90,20 @@ resource "aws_sfn_state_machine" "workout_coach_pipeline" {
         ResultPath = "$.extract_result"
         Retry      = local.standard_retry
         Catch      = local.failure_catch
-        Next       = "BronzeToSilver"
+        Next       = "HasNewData"
+      }
+      HasNewData = {
+        Type = "Choice"
+        Choices = [{
+          Variable           = "$.extract_result.Payload.written"
+          NumericGreaterThan = 0
+          Next               = "BronzeToSilver"
+        }]
+        Default = "NoNewData"
+      }
+      NoNewData = {
+        Type    = "Succeed"
+        Comment = "Extract found no new Hevy events this run — Glue/sync skipped, nothing to process."
       }
       BronzeToSilver = {
         Type     = "Task"
