@@ -8,10 +8,23 @@ messages at all (a plain REST endpoint can't), which streaming and any
 future "dashboard_update" push both need. Upgrading to real per-token
 streaming later only touches this Lambda + agent.py, not the transport.
 
+$default is split into a fast dispatch path and an async worker path.
+API Gateway's WebSocket Lambda-proxy integration has a hard ~29s wait
+before it kills the connection, but the orchestrator -> specialist agent
+chain (agent.py) can take longer than that once tool calls stack up —
+that combination caused silent "no response" hangs (Lambda killed
+mid-flight, no exception raised, nothing pushed to the client). Fix:
+$default validates then self-invokes this same function asynchronously
+(InvocationType="Event") and returns 200 to API Gateway immediately: the
+worker invocation does the real agent call and pushes the result whenever
+it's ready, unconstrained by the 29s integration cap.
+
 Routes (API Gateway WebSocket routeKey):
     $connect    - mint a runtimeSessionId for this connection, persist it
     $disconnect - clean up the connection record
-    $default    - {"prompt": "..."} -> invoke AgentCore, push the answer back
+    $default    - {"prompt": "..."} -> validate, dispatch async worker, return fast
+    (async worker re-entry, marked by "_async_worker": True in the event)
+                - {"prompt": "..."} -> invoke AgentCore, push the answer back
 
 Env vars:
     CONNECTIONS_TABLE_NAME, AGENTCORE_AGENT_RUNTIME_ARN
@@ -90,7 +103,12 @@ def push_to_connection(management_client, connection_id: str, message: dict) -> 
     management_client.post_to_connection(ConnectionId=connection_id, Data=json.dumps(message).encode("utf-8"))
 
 
-def handle_default(event: dict, connection_id: str) -> dict:
+def handle_default(event: dict, connection_id: str, _context=None) -> dict:
+    """Worker path: actually calls the agent and pushes the result.
+
+    Runs inside the async self-invocation dispatched by dispatch_default,
+    unconstrained by API Gateway's ~29s integration wait.
+    """
     session_id = get_session_id(connection_id)
     if session_id is None:
         return {"statusCode": 410}  # GoneException equivalent — connection not tracked
@@ -113,7 +131,36 @@ def handle_default(event: dict, connection_id: str) -> dict:
         return {"statusCode": 500}
 
 
-def handler(event, _context):
+def dispatch_default(event: dict, connection_id: str, context) -> dict:
+    """Fast path: validate, then hand off to an async worker invocation.
+
+    Keeps this function's response to API Gateway well under the 29s
+    integration wait regardless of how long the agent chain takes.
+    """
+    session_id = get_session_id(connection_id)
+    if session_id is None:
+        return {"statusCode": 410}
+
+    body = json.loads(event.get("body") or "{}")
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        management_client = _management_client(event)
+        push_to_connection(management_client, connection_id, build_error_message("prompt is required"))
+        return {"statusCode": 400}
+
+    lambda_client = boto3.client("lambda", region_name=os.environ.get("AWS_REGION", "eu-west-1"))
+    lambda_client.invoke(
+        FunctionName=context.invoked_function_arn,
+        InvocationType="Event",
+        Payload=json.dumps({"_async_worker": True, "event": event, "connection_id": connection_id}).encode("utf-8"),
+    )
+    return {"statusCode": 200}
+
+
+def handler(event, context):
+    if event.get("_async_worker"):
+        return handle_default(event["event"], event["connection_id"], context)
+
     route_key = event["requestContext"]["routeKey"]
     connection_id = event["requestContext"]["connectionId"]
 
@@ -121,4 +168,4 @@ def handler(event, _context):
         return handle_connect(connection_id)
     if route_key == "$disconnect":
         return handle_disconnect(connection_id)
-    return handle_default(event, connection_id)
+    return dispatch_default(event, connection_id, context)

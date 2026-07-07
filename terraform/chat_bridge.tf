@@ -75,6 +75,15 @@ resource "aws_iam_role_policy" "chat_bridge" {
         Resource = [var.agentcore_agent_runtime_arn, "${var.agentcore_agent_runtime_arn}/*"]
       },
       {
+        # $default dispatches an async self-invocation of this same function
+        # to escape API Gateway's ~29s WebSocket integration wait — see
+        # dispatch_default/handle_default in handler.py.
+        Sid      = "SelfInvokeAsync"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = "arn:aws:lambda:${var.aws_region}:*:function:${var.project_name}-chat-bridge"
+      },
+      {
         Sid      = "PushToWebSocketConnections"
         Effect   = "Allow"
         Action   = "execute-api:ManageConnections"
@@ -95,7 +104,7 @@ resource "aws_lambda_function" "chat_bridge" {
   role             = aws_iam_role.chat_bridge.arn
   handler          = "handler.handler"
   runtime          = "python3.12"
-  timeout          = 30
+  timeout          = 120 # worker path is no longer bound by API Gateway's ~29s wait; margin for the multi-agent chain
   memory_size      = 128
   filename         = data.archive_file.chat_bridge.output_path
   source_code_hash = data.archive_file.chat_bridge.output_base64sha256

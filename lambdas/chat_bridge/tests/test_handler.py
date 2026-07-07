@@ -153,6 +153,46 @@ def test_handle_default_agent_error_pushes_error_message(aws_env, monkeypatch):
     assert pushed["type"] == "error"
 
 
+# ---- dispatch_default (async self-invoke, escapes API Gateway's ~29s wait) -----
+
+def test_dispatch_default_self_invokes_async_and_returns_fast(aws_env, monkeypatch):
+    h.handle_connect("conn-1")
+
+    fake_lambda = MagicMock()
+    monkeypatch.setattr(boto3, "client", lambda service, **kw: fake_lambda if service == "lambda" else MagicMock())
+    fake_context = MagicMock(invoked_function_arn="arn:aws:lambda:eu-west-1:123:function:chat-bridge")
+
+    event = _event("conn-1", {"prompt": "how am I doing?"})
+    result = h.dispatch_default(event, "conn-1", fake_context)
+
+    assert result == {"statusCode": 200}
+    fake_lambda.invoke.assert_called_once()
+    _, kwargs = fake_lambda.invoke.call_args
+    assert kwargs["FunctionName"] == "arn:aws:lambda:eu-west-1:123:function:chat-bridge"
+    assert kwargs["InvocationType"] == "Event"
+    payload = json.loads(kwargs["Payload"])
+    assert payload == {"_async_worker": True, "event": event, "connection_id": "conn-1"}
+
+
+def test_dispatch_default_missing_prompt_pushes_error_and_skips_invoke(aws_env, monkeypatch):
+    h.handle_connect("conn-1")
+    fake_management = MagicMock()
+    monkeypatch.setattr(h, "_management_client", lambda event: fake_management)
+    fake_lambda = MagicMock()
+    monkeypatch.setattr(boto3, "client", lambda service, **kw: fake_lambda if service == "lambda" else MagicMock())
+
+    result = h.dispatch_default(_event("conn-1", {}), "conn-1", MagicMock())
+
+    assert result == {"statusCode": 400}
+    fake_management.post_to_connection.assert_called_once()
+    fake_lambda.invoke.assert_not_called()
+
+
+def test_dispatch_default_unknown_connection_returns_gone(aws_env):
+    result = h.dispatch_default(_event("never-connected", {"prompt": "hi"}), "never-connected", MagicMock())
+    assert result == {"statusCode": 410}
+
+
 # ---- top-level handler routing --------------------------------------------------
 
 def test_handler_routes_connect(aws_env, monkeypatch):
@@ -174,3 +214,30 @@ def test_handler_routes_disconnect(aws_env, monkeypatch):
     h.handler(event, None)
 
     assert called == ["conn-1"]
+
+
+def test_handler_routes_default_to_dispatch(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        h, "dispatch_default", lambda event, conn_id, ctx: called.append((conn_id, ctx)) or {"statusCode": 200}
+    )
+
+    event = {"requestContext": {"routeKey": "$default", "connectionId": "conn-1"}, "body": "{}"}
+    result = h.handler(event, "fake-context")
+
+    assert result == {"statusCode": 200}
+    assert called == [("conn-1", "fake-context")]
+
+
+def test_handler_routes_async_worker_to_handle_default(monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        h, "handle_default", lambda event, conn_id, ctx: called.append((event, conn_id, ctx)) or {"statusCode": 200}
+    )
+
+    inner_event = {"requestContext": {"routeKey": "$default"}, "body": "{}"}
+    event = {"_async_worker": True, "event": inner_event, "connection_id": "conn-1"}
+    result = h.handler(event, "fake-context")
+
+    assert result == {"statusCode": 200}
+    assert called == [(inner_event, "conn-1", "fake-context")]
