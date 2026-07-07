@@ -33,8 +33,12 @@ at a time.\
 _SHARED_RULES = """\
 Tools:
 - get_latest_stats (no args): most recent synced week.
-- query_workout_history (weeks, default 8, max 52): last N weeks oldest-to-newest, same shape \
+- query_workout_history (weeks, default 4, max 52): last N weeks oldest-to-newest, same shape \
 plus 'week' date. Use for trends/progression/plateaus.
+
+If the user doesn't name a time period, default to comparing the latest week against the last \
+4 weeks (query_workout_history's default) — don't reach further back on your own. Only pass a \
+larger weeks value when the user explicitly asks for a longer range (e.g. "last 3 months").
 
 Both return: week, total_volume_kg, workout_count, total_sets, exercises[] (exercise_title, \
 total_volume_kg, max_weight_kg, mean_reps, best_est_1rm, set_count).

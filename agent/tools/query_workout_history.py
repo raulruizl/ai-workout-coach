@@ -28,7 +28,7 @@ def clamp_weeks(weeks: int) -> int:
     return max(1, min(weeks, _MAX_WEEKS))
 
 
-def fetch_history(weeks: int = 8) -> dict:
+def fetch_history(weeks: int = 4) -> dict:
     """Plain (undecorated) implementation, importable by other tools
     (e.g. propose_progression) without going through the @tool wrapper."""
     limit = clamp_weeks(weeks)
@@ -58,7 +58,9 @@ def query_workout_history(weeks: int = 8) -> dict:
     plateaus that a single week's data can't answer.
 
     Args:
-        weeks: How many of the most recent weeks to return (1-52, default 8).
+        weeks: How many of the most recent weeks to return (1-52). Default
+            4 — use that whenever the user hasn't specified a period; only
+            pass a larger value if they explicitly ask for a longer range.
 
     Returns:
         Dict with a 'weeks' list (oldest to newest), each item shaped like
