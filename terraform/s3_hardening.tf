@@ -29,3 +29,25 @@ resource "aws_s3_bucket_versioning" "bronze" {
     status = "Enabled"
   }
 }
+
+# Silver/gold are derived and fully reprocessable from bronze at any time, so
+# trimming them to 60 days is safe and reversible (re-run the Glue jobs).
+# Bronze is deliberately excluded — it's the immutable source of truth and
+# has no lifecycle rule (see CLAUDE.md: "never overwritten, never has rows
+# dropped").
+resource "aws_s3_bucket_lifecycle_configuration" "derived_layers" {
+  for_each = { for k in ["silver", "gold"] : k => aws_s3_bucket.layer[k] }
+
+  bucket = each.value.id
+
+  rule {
+    id     = "expire-after-60-days"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      days = 60
+    }
+  }
+}

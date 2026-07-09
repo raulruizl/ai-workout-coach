@@ -74,4 +74,6 @@ resource "aws_lambda_function" "extract_hevy_workouts" {
       HEVY_API_KEY_PARAM = aws_ssm_parameter.hevy_api_key.name
     }
   }
+
+  depends_on = [aws_cloudwatch_log_group.extract_hevy_workouts]
 }

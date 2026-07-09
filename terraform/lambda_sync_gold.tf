@@ -70,4 +70,6 @@ resource "aws_lambda_function" "sync_gold_to_dynamodb" {
       STATS_TABLE_NAME = aws_dynamodb_table.workout_coach_stats.name
     }
   }
+
+  depends_on = [aws_cloudwatch_log_group.sync_gold_to_dynamodb]
 }

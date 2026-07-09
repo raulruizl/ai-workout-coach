@@ -4,9 +4,26 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from tools.query_workout_history import clamp_weeks, query_workout_history
+from tools.query_workout_history import clamp_weeks, query_workout_history, to_plain
 
 TABLE_NAME = "stats-test"
+
+
+# ---- to_plain ----------------------------------------------------------------
+
+def test_to_plain_converts_whole_decimal_to_int():
+    assert to_plain(Decimal("5")) == 5
+    assert isinstance(to_plain(Decimal("5")), int)
+
+
+def test_to_plain_converts_fractional_decimal_to_float():
+    assert to_plain(Decimal("5.5")) == 5.5
+    assert isinstance(to_plain(Decimal("5.5")), float)
+
+
+def test_to_plain_recurses_into_nested_structures():
+    result = to_plain({"a": [Decimal("1"), {"b": Decimal("2.5")}]})
+    assert result == {"a": [1, {"b": 2.5}]}
 
 
 # ---- clamp_weeks ------------------------------------------------------------

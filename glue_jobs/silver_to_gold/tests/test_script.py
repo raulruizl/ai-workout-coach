@@ -133,6 +133,21 @@ def test_weekly_exercise_stats_best_est_1rm_ignores_reps_over_12():
     assert row["best_est_1rm"] == pytest.approx(100 * (1 + 5 / 30))
 
 
+def test_weekly_exercise_stats_mean_reps_only_counts_sets_at_top_weight():
+    """A ramping session (progressively heavier sets) must not blend reps
+    across weights into one number — mean_reps is reps AT the top/working
+    weight only, since that's what double-progression decisions key off."""
+    df = pd.DataFrame([
+        _set_row(set_index=0, weight_kg=40.0, reps=12),
+        _set_row(set_index=1, weight_kg=45.0, reps=10),
+        _set_row(set_index=2, weight_kg=45.0, reps=8),
+    ])
+    result = s.compute_weekly_exercise_stats("demo-user", df)
+    row = result.iloc[0]
+    assert row["max_weight_kg"] == 45.0
+    assert row["mean_reps"] == 9.0  # (10 + 8) / 2 at 45kg — the 40kg set excluded
+
+
 def test_weekly_exercise_stats_empty_input():
     result = s.compute_weekly_exercise_stats("demo-user", pd.DataFrame(columns=SET_COLUMNS))
     assert result.empty

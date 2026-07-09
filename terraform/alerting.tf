@@ -7,6 +7,16 @@ resource "aws_sns_topic" "pipeline_alerts" {
   name = "${var.project_name}-pipeline-alerts"
 }
 
+# Without a subscription the two alarms below publish into the void —
+# nobody learns the pipeline failed. Email requires a one-time click on
+# the AWS confirmation mail before deliveries start (same address as the
+# weekly report, already SES-verified, but SNS confirmation is separate).
+resource "aws_sns_topic_subscription" "pipeline_alerts_email" {
+  topic_arn = aws_sns_topic.pipeline_alerts.arn
+  protocol  = "email"
+  endpoint  = var.notification_email
+}
+
 # D3 — CloudWatch alarms on the pipeline. Reuses the existing DLQ + SNS
 # topic above rather than standing up a second alerting path (ADR-006).
 

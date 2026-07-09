@@ -2,18 +2,18 @@
 from the sole serving layer (DynamoDB), written by B4. Deterministic
 data-fetch only — trend interpretation lives in the agent's system prompt.
 
-Same single-user, no-auth pattern as get_latest_stats: user_id is fixed
-via TARGET_USER_ID, never agent-supplied.
+Single-user, no-auth pattern: user_id is fixed via TARGET_USER_ID, never
+agent-supplied. This sidesteps "never string-interpolate agent-supplied
+values into DynamoDB key construction" entirely rather than validating it.
 """
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
 from strands import tool
-
-from tools.get_latest_stats import to_plain
 
 _MAX_WEEKS = 52
 
@@ -22,6 +22,18 @@ def _table():
     table_name = os.environ.get("STATS_TABLE_NAME", "workout-coach-stats")
     region = os.environ.get("AWS_REGION", "eu-west-1")
     return boto3.resource("dynamodb", region_name=region).Table(table_name)
+
+
+def to_plain(value):
+    """Decimal -> int/float so tool output is normal JSON-friendly Python,
+    not boto3's DynamoDB-specific numeric type."""
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    if isinstance(value, list):
+        return [to_plain(v) for v in value]
+    if isinstance(value, dict):
+        return {k: to_plain(v) for k, v in value.items()}
+    return value
 
 
 def clamp_weeks(weeks: int) -> int:
@@ -51,7 +63,7 @@ def fetch_history(weeks: int = 4) -> dict:
 
 
 @tool
-def query_workout_history(weeks: int = 8) -> dict:
+def query_workout_history(weeks: int = 4) -> dict:
     """
     Get the user's training stats across their most recent N weeks, oldest
     first — use this for any question about trends, progression, or
@@ -59,12 +71,12 @@ def query_workout_history(weeks: int = 8) -> dict:
 
     Args:
         weeks: How many of the most recent weeks to return (1-52). Default
-            4 — use that whenever the user hasn't specified a period; only
-            pass a larger value if they explicitly ask for a longer range.
+            4 — the fixed analysis window for the weekly report; only pass
+            a larger value if explicitly asked for a longer range.
 
     Returns:
-        Dict with a 'weeks' list (oldest to newest), each item shaped like
-        get_latest_stats' output plus a 'week' date. Empty list if no
-        history has been synced yet.
+        Dict with a 'weeks' list (oldest to newest), each item with week
+        date, total_volume_kg, workout_count, total_sets, and exercises[].
+        Empty list if no history has been synced yet.
     """
     return fetch_history(weeks)

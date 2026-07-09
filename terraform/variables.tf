@@ -15,3 +15,8 @@ variable "project_name" {
   type        = string
   default     = "workout-coach"
 }
+
+variable "notification_email" {
+  description = "Single-user recipient (and sender, self-to-self) for the weekly SES report — must be verified in SES (sandbox mode) before emails will send"
+  type        = string
+}

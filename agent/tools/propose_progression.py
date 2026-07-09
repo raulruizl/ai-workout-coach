@@ -1,25 +1,23 @@
 """propose_progression tool (F2, write-path design per security-expert
 HITL review): computes a weight/rep target for an exercise and persists
-it as a short-lived, single-use proposal. This is the ONLY way
-apply_progression can execute a write — it takes a proposal_id, never a
-free-form weight, so the model can never originate an arbitrary Hevy
-write value directly.
+it as a short-lived, single-use proposal. This is the ONLY way the
+actual Hevy write (confirm_progression Lambda, outside the model) can
+execute — it takes a proposal_id, never a free-form weight, so the model
+can never originate an arbitrary Hevy write value.
 
-Two ways to get a proposed weight/reps:
-- Omit weight_kg/reps: deterministic +2.5kg heuristic off the user's own
-  logged history (the original F2 behavior, for model-initiated
-  progression suggestions after spotting a plateau etc).
-- Pass weight_kg/reps explicitly: the user's own directly-requested
-  numbers (e.g. "set my next bench to 60kg for 8 reps"), bounds-checked
-  here before being staged as a proposal. Still requires the same
-  explicit-confirmation + apply_progression(proposal_id) round trip as
-  the heuristic path — a user asking for a number in chat doesn't skip
-  the gate, it just supplies the number instead of the heuristic.
+The model supplies ONLY the exercise_template_id (which
+find_progression_candidate already selected deterministically). The
+proposed numbers are always computed here from the user's own logged
+history via the +2.5kg double-progression heuristic — the tool
+deliberately accepts no weight/reps parameters at all. An earlier
+version allowed the model to pass user-requested numbers through (for
+the chat flow, e.g. "set my bench to 60kg"); with email-only delivery
+there is no chat turn where a user could ask, so that parameter surface
+was removed entirely rather than left as an unused write path.
 
 Read-only: never touches the Hevy API, only DynamoDB. Deciding WHETHER a
-change is warranted (plateau, user request, etc.) is the calling agent's
-domain judgment, not this tool's; it only validates and records the
-numbers once asked.
+change is warranted lives in find_progression_candidate, not here; this
+tool only computes and records the numbers once asked.
 """
 from __future__ import annotations
 
@@ -35,9 +33,7 @@ from strands import tool
 from tools.query_workout_history import fetch_history
 
 _PROGRESSION_INCREMENT_KG = 2.5
-_PROPOSAL_TTL_SECONDS = 600  # 10 minutes
-_MAX_WEIGHT_KG = 500  # sanity bound on user-supplied weight, not a real training limit
-_MAX_REPS = 50  # sanity bound on user-supplied reps
+_PROPOSAL_TTL_SECONDS = 3 * 24 * 60 * 60  # 3 days — confirmed via emailed link, not same-session chat
 
 
 def _table():
@@ -61,49 +57,35 @@ def find_latest_exercise_entry(history: dict, exercise_template_id: str) -> Opti
 
 
 @tool
-def propose_progression(exercise_template_id: str, weight_kg: Optional[float] = None,
-                         reps: Optional[int] = None) -> dict:
+def propose_progression(exercise_template_id: str) -> dict:
     """
-    Propose a weight/rep target for an exercise's next session, based on
-    the user's own logged history. Two call shapes:
-    - No weight_kg/reps: computes the deterministic +2.5kg heuristic —
-      call this only after you've identified a real reason to progress
-      (e.g. a plateau or consistent performance at the current weight).
-    - weight_kg and/or reps given: use these when the user directly asks
-      for a specific number (e.g. "set my next bench to 60kg for 8
-      reps") — pass their exact numbers through rather than guessing.
-    Either way, this tool doesn't decide whether the change is warranted,
-    it only validates and records the proposed numbers.
+    Propose a weight progression for an exercise's next session: the
+    +2.5kg double-progression heuristic over the user's most recent
+    logged weight, at the same recent mean reps. Call this only with the
+    exact exercise_template_id that find_progression_candidate returned —
+    never with one you picked yourself. The proposed numbers are computed
+    here from logged history; you cannot and should not supply them.
 
     Args:
-        exercise_template_id: The Hevy exercise_template_id to update,
-            as seen in get_latest_stats/query_workout_history output.
-        weight_kg: Optional user-requested target weight in kg. Omit to
-            use the +2.5kg-over-current heuristic instead.
-        reps: Optional user-requested target rep count. Omit to use the
-            exercise's recent mean reps instead.
+        exercise_template_id: The Hevy exercise_template_id to propose a
+            progression for, exactly as returned by
+            find_progression_candidate.
 
     Returns:
         Dict with proposal_id, exercise_title, current_weight_kg,
-        proposed_weight_kg, reps — relay this to the user and ask for
-        explicit confirmation before calling apply_progression with the
-        same proposal_id. The proposal expires in 10 minutes.
-        Dict with an 'error' key if the exercise has no recent history,
-        or if weight_kg/reps is outside a sane range.
+        proposed_weight_kg, reps — include the proposal_id in the
+        report's confirm placeholder. The proposal expires in 3 days.
+        Dict with an 'error' key if the exercise has no recent weighted
+        history.
     """
-    if weight_kg is not None and not (0 < weight_kg <= _MAX_WEIGHT_KG):
-        return {"error": f"weight_kg must be between 0 and {_MAX_WEIGHT_KG}."}
-    if reps is not None and not (1 <= reps <= _MAX_REPS):
-        return {"error": f"reps must be between 1 and {_MAX_REPS}."}
-
     history = fetch_history(weeks=1)
     entry = find_latest_exercise_entry(history, exercise_template_id)
     if entry is None or entry.get("max_weight_kg") is None:
         return {"error": f"No recent weighted history found for exercise {exercise_template_id}."}
 
     current_weight_kg = entry["max_weight_kg"]
-    proposed_weight_kg = round(weight_kg, 2) if weight_kg is not None else compute_proposed_weight(current_weight_kg)
-    proposed_reps = reps if reps is not None else round(entry.get("mean_reps") or 8)
+    proposed_weight_kg = compute_proposed_weight(current_weight_kg)
+    proposed_reps = round(entry.get("mean_reps") or 8)
 
     proposal_id = str(uuid.uuid4())
     target_user_id = os.environ.get("TARGET_USER_ID", "demo-user")

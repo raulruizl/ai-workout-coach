@@ -58,12 +58,22 @@ output "agentcore_role_arn" {
   value       = aws_iam_role.agentcore.arn
 }
 
-output "chat_websocket_url" {
-  description = "WebSocket URL for the chat bridge (G1) — wss://<id>.execute-api.<region>.amazonaws.com/prod"
-  value       = aws_apigatewayv2_stage.prod.invoke_url
+output "sync_routine_weights_lambda_name" {
+  description = "Deterministic Hevy routine-weight sync Lambda name (B5)"
+  value       = aws_lambda_function.sync_routine_weights.function_name
 }
 
-output "amplify_app_id" {
-  description = "Amplify app ID (G2) — pass to frontend/deploy.sh"
-  value       = aws_amplify_app.frontend.id
+output "weekly_report_lambda_name" {
+  description = "Weekly hypertrophy report Lambda name — invokes the agent, sends via SES"
+  value       = aws_lambda_function.weekly_report.function_name
+}
+
+output "confirm_progression_url" {
+  description = "Public API Gateway URL for the one-click progression confirm link (embedded in the weekly email)"
+  value       = aws_apigatewayv2_stage.confirm_progression.invoke_url
+}
+
+output "ses_verification_reminder" {
+  description = "SES starts in sandbox mode — verify this address (check inbox for the AWS confirmation email) before the weekly report can send"
+  value       = "Verify ${var.notification_email} in SES before the first weekly report run"
 }

@@ -132,7 +132,21 @@ def compute_weekly_exercise_stats(user_id: str, sets_df: pd.DataFrame) -> pd.Dat
     for (week, template_id), group in working.groupby(["week", "exercise_template_id"]):
         est_1rms = group["set_est_1rm"].dropna()
         max_weights = group["weight_kg"].dropna()
-        reps_values = group["reps"].dropna()
+
+        # mean_reps must reflect reps AT THE TOP WORKING WEIGHT only, not
+        # blended across every weight logged that week — a ramping session
+        # (e.g. 40kg x12, 45kg x10, 45kg x8) would otherwise average reps
+        # across different weights into one number, corrupting the signal
+        # double-progression decisions depend on (mean_reps at the CURRENT
+        # weight, not an average of warm-up-adjacent sets at lighter loads).
+        # Bodyweight/time-based exercises (no weight_kg at all) fall back
+        # to every set, since there's no weight to key off.
+        if max_weights.empty:
+            reps_at_top_weight = group["reps"].dropna()
+        else:
+            top_weight = max_weights.max()
+            reps_at_top_weight = group.loc[group["weight_kg"] == top_weight, "reps"].dropna()
+
         rows.append({
             "user_id": user_id,
             "week": week,
@@ -140,7 +154,7 @@ def compute_weekly_exercise_stats(user_id: str, sets_df: pd.DataFrame) -> pd.Dat
             "exercise_title": group["exercise_title"].iloc[0],
             "total_volume_kg": group["set_volume_kg"].sum(),
             "max_weight_kg": max_weights.max() if not max_weights.empty else None,
-            "mean_reps": reps_values.mean() if not reps_values.empty else None,
+            "mean_reps": reps_at_top_weight.mean() if not reps_at_top_weight.empty else None,
             "best_est_1rm": est_1rms.max() if not est_1rms.empty else None,
             "set_count": len(group),
             "total_distance_meters": group["distance_meters"].dropna().sum() or None,

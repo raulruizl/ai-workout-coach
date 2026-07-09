@@ -96,37 +96,10 @@ def test_propose_progression_error_when_no_history(aws_env):
     assert "error" in result
 
 
-# ---- propose_progression with user-supplied weight_kg/reps --------------------
-
-def test_propose_progression_uses_user_supplied_weight_and_reps(aws_env):
-    result = propose_progression("3601968B", weight_kg=60.0, reps=8)
-
-    assert result["proposed_weight_kg"] == 60.0
-    assert result["reps"] == 8
-    assert result["current_weight_kg"] == 20.0  # unaffected, still the real logged history
-
-
-def test_propose_progression_user_weight_only_keeps_history_reps(aws_env):
-    result = propose_progression("3601968B", weight_kg=60.0)
-
-    assert result["proposed_weight_kg"] == 60.0
-    assert result["reps"] == 9  # falls back to entry's mean_reps
-
-
-def test_propose_progression_user_reps_only_keeps_heuristic_weight(aws_env):
-    result = propose_progression("3601968B", reps=5)
-
-    assert result["proposed_weight_kg"] == 22.5  # falls back to +2.5kg heuristic
-    assert result["reps"] == 5
-
-
-@pytest.mark.parametrize("weight_kg", [0, -5, 501])
-def test_propose_progression_rejects_out_of_range_weight(aws_env, weight_kg):
-    result = propose_progression("3601968B", weight_kg=weight_kg)
-    assert "error" in result
-
-
-@pytest.mark.parametrize("reps", [0, -1, 51])
-def test_propose_progression_rejects_out_of_range_reps(aws_env, reps):
-    result = propose_progression("3601968B", reps=reps)
-    assert "error" in result
+def test_propose_progression_accepts_no_weight_or_reps_params():
+    """The model must not be able to supply numbers — the tool signature
+    itself is the gate (removed chat-era weight_kg/reps params)."""
+    with pytest.raises(TypeError):
+        propose_progression("3601968B", weight_kg=60.0)  # noqa — intentional bad call
+    with pytest.raises(TypeError):
+        propose_progression("3601968B", reps=8)  # noqa — intentional bad call

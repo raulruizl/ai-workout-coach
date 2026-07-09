@@ -22,8 +22,9 @@ resource "aws_dynamodb_table" "workout_coach_stats" {
   }
 
   # Used only by PROPOSAL#<id> items (propose_progression/apply_progression,
-  # F2 write-tool gate) — proposals expire 10 minutes after creation so a
-  # stale one can never be replayed. Every other item type ignores this.
+  # F2 write-tool gate) — proposals expire 3 days after creation (long
+  # enough to read/click the emailed report) so a stale one can never be
+  # replayed. Every other item type ignores this.
   ttl {
     attribute_name = "ttl"
     enabled        = true
